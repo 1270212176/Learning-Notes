@@ -195,7 +195,7 @@ my-nacos:
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacosRule负载均衡规则.png)
 
-### 4 nacos服务实例的权重设置
+### 4 Nacos服务实例的权重设置
 
 
 
@@ -207,7 +207,7 @@ nacos提供了权重配置来控制访问频率，权重越大则访问频率越
 
 
 
-### 5 nacos环境隔离
+### 5 Nacos环境隔离
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos环境隔离.png)
 
@@ -244,7 +244,7 @@ spring:
 
 
 
-### 6 nacos的临时实例与非临时实例
+### 6 Nacos的临时实例与非临时实例
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos的临时实例与非临时实例.png)
 
@@ -262,13 +262,13 @@ spring:
 
 
 
-### 7 nacos与eureka的区别
+### 7 Nacos与Eureka的区别
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos与eureka区别.png)
 
 
 
-### 8 nacos实现配置管理
+### 8 Nacos实现配置管理
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos配置管理.png)
 
@@ -279,3 +279,83 @@ spring:
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos配置文件2.png)
 
 **注意配置文件中的内容应该是经常有需求变化的内容**
+
+
+
+SpringBoot中读取统一配置文件
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\读取配置文件.png)
+
+
+
+引入客户端依赖
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\配置管理依赖.png)
+
+配置bootstrap.yaml
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\bootstrap.yaml.png)
+
+```
+spring:
+  application:
+    name: my-nacos #服务名称
+  profiles:
+    active: dev #开发环境，这里是dev
+  cloud:
+    nacos:
+      server-addr: localhost:8848 #nacos地址
+      config:
+        file-extension: yaml #文件后缀名
+```
+
+
+
+此时的application.yml文件中就可以将nacos地址和服务名称删除
+
+```
+spring:
+  cloud:
+    nacos:
+      discovery:
+        # 指定nacos server地址
+#        server-addr: localhost:8848
+        cluster-name: XM #集群名称，自定义，XM代指厦门
+        namespace: 492a71383-dhjds7864e-adw2 #配置命名空间的id，此id为新建命名空间时nacos控制台自动生成的
+        ephemeral: false #是否是临时实例
+#  application:
+#    name: my-nacos
+server:
+  port: 8081
+
+```
+
+
+
+拉取配置文件测试
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\拉取配置文件测试.png)
+
+
+
+### 9 Nacos配置热更新(配置自动更新)
+
+
+
+两种方式实现
+
+
+
+**方式1**
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\配置热更新1.png)
+
+
+
+**方式2**
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\配置热更新2.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\配置文件总结.png)
+
+### 10 Nacos 多环境配置加载
