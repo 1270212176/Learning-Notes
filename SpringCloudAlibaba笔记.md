@@ -265,3 +265,17 @@ spring:
 ### 7 nacos与eureka的区别
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos与eureka区别.png)
+
+
+
+### 8 nacos实现配置管理
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos配置管理.png)
+
+在nacos终端中添加配置文件
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos配置文件管理1.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\nacos配置文件2.png)
+
+**注意配置文件中的内容应该是经常有需求变化的内容**
