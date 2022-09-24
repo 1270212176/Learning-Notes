@@ -358,4 +358,29 @@ server:
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\配置文件总结.png)
 
-### 10 Nacos 多环境配置加载
+### 10 Nacos 多环境配置共享
+
+
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\多环境配置共享思路.png)
+
+如果本地配置文件与nacos客户端的两个配置文件有相同配置时，优先级为
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\多环境配置优先级.png)
+
+
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\多环境配置相关知识.png)
+
+11 Nacos集群配置
+
+看Nacos集群搭建配置文档配合黑马视频使用。
+
+黑马视频地址
+
+```
+https://www.bilibili.com/video/BV1LQ4y127n4?p=29&vd_source=21e0104c53b895468585eecd2498df15
+```
+
+
+
