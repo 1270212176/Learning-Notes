@@ -115,3 +115,11 @@ jedis、lettuce、Redisson
 步骤
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\jedis步骤1.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\jedis步骤2.png)
+
+### 10 SpringDataRedis
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\SpringDataRedis.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\SpringDataRedis快速入门.png)
