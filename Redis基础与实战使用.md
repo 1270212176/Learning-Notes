@@ -1,4 +1,4 @@
-# Redis
+#  Redis
 
 ## 基础篇
 
@@ -123,3 +123,139 @@ jedis、lettuce、Redisson
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\SpringDataRedis.png)
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\SpringDataRedis快速入门.png)
+
+### 11 SpringDataRedis快速入门
+
+引入依赖
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\引入SpringDataRedis依赖.png)
+
+配置文件
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\SpringDataRedis配置文件.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\RedisTemplate注入.png)
+
+
+
+```
+@Resource
+    private RedisTemplate redisTemplate;
+
+    @Test
+    public void redisTest(){
+        redisTemplate.opsForValue().set("name","hh");
+        System.out.println(redisTemplate.opsForValue().get("name"));
+    }
+    
+    
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+```
+
+
+
+### 12 RedisTemplate序列化
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\RedisTemplate序列化.png)
+
+
+
+
+
+自定义序列化格式
+
+
+
+引入jackson依赖
+
+```
+<dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+```
+
+
+
+```
+@Bean
+    public RedisTemplate<String,Object> redisTemplate(RedisConnectionFactory redisConnectionFactory){
+        //创建RedisTemplate对象
+        RedisTemplate<String,Object> template = new RedisTemplate<>();
+
+        //设置连接工厂
+        template.setConnectionFactory(redisConnectionFactory);
+
+        //创建Json序列化工具
+        GenericJackson2JsonRedisSerializer jsonRedisSerializer = new GenericJackson2JsonRedisSerializer();
+        //设置key的序列化
+        template.setKeySerializer(RedisSerializer.string());
+        template.setHashKeySerializer(RedisSerializer.string());
+        //设置Value序列化
+        template.setValueSerializer(jsonRedisSerializer);
+        template.setHashValueSerializer(jsonRedisSerializer);
+       
+        //返回
+        return template;
+    }
+```
+
+
+
+### 13 SpringRedisTemplate
+
+RedisTemplate自定义序列化的不足
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\自定义序列化的不足.png)
+
+
+
+解决方法
+
+使用SpringRedisTemplate
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\SpringRedisTemplate.png)
+
+
+
+```
+public class StringRedisTemplateTest {
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();//SpringMvc默认使用的json序列化工具
+
+    @Test
+    public void redisTest() throws JsonProcessingException {
+        //创建对象
+        User user = new User("张三",20);
+
+        //手动序列化
+        String json = objectMapper.writeValueAsString(user);
+
+        //写入数据
+        stringRedisTemplate.opsForValue().set("user",json);
+
+        //获取数据
+        String userJson = stringRedisTemplate.opsForValue().get("user");
+
+        //手动反序列化
+        User user1 = objectMapper.readValue(userJson, User.class);
+        System.out.println(user1);
+    }
+}
+```
+
+
+
+### 14 序列化总结
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\序列化总结.png)
+
+##  实战篇
+
+ 
