@@ -412,3 +412,302 @@ public class MvcConfig implements WebMvcConfigurer {
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\短信登录\redis代替session1.png)
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\短信登录\redis代替session2.png)
+
+
+
+发送验证码
+
+```
+public Result sendCode(String phone, HttpSession session) {
+        //校验手机号
+        if (RegexUtils.isPhoneInvalid(phone)){
+            //如果不符合，返回错误信息
+            return Result.fail("手机格式错误");
+        }
+
+        //符合生成验证码
+        String code = RandomUtil.randomNumbers(6);//生成6为随机数，import cn.hutool.core.util.RandomUtil;下的工具类，需要导入依赖
+
+        //将验证码保存在redis中
+        stringRedisTemplate.opsForValue().set(RedisConstants.LOGIN_CODE_KEY + phone,code,RedisConstants.LOGIN_CODE_TTL,
+                TimeUnit.MINUTES);//设置有效期为两分钟
+
+        //发送验证码
+        log.info("验证码发送成功，验证码{}",code);
+        //需要调用第三方短信平台，如阿里云，京东万象，详情见优选商城，这里使用日志打印code
+
+        //返回ok
+        return Result.ok();
+    }
+```
+
+
+
+登录与注册
+
+```
+ public Result login(LoginFormDTO loginForm, HttpSession session) {
+        //校验手机号
+
+        if (RegexUtils.isPhoneInvalid(loginForm.getPhone())){
+            //如果不符合，返回错误信息
+            return Result.fail("手机格式错误");
+        }
+
+
+        //从Redis中拿到校验码
+        String stringCode = stringRedisTemplate.opsForValue().get(RedisConstants.LOGIN_CODE_KEY + loginForm.getPhone());
+        String code = loginForm.getCode();
+        if (stringCode == null ||!stringCode.equals(code)){
+            //不一致报错
+            return Result.fail("验证码错误");
+        }
+
+        //一致根据手机号查询用户
+        User user = query().eq("phone", loginForm.getPhone()).one();
+
+
+        //判断用户是否存在
+        if (user == null){
+            //不存在，创建新用户并写入数据库
+            user = createUserWithPhone(loginForm.getPhone());
+        }
+
+
+
+        //随机生成token作为登录令牌
+        String token = UUID.randomUUID().toString(true);
+
+        //将User对象转为Hash存储
+        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+        Map<String, Object> map = BeanUtil.beanToMap(userDTO,new HashMap<>(),
+        CopyOptions.create()
+                .setIgnoreNullValue(true)
+                .setFieldValueEditor((fileName,fileValue)->fileValue.toString())
+        );
+
+
+        //将用户信息保存到redis中
+        stringRedisTemplate.opsForHash().putAll(RedisConstants.LOGIN_USER_KEY + token,map);
+
+        //设置token有效期
+        stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token,RedisConstants.LOGIN_USER_TTL,TimeUnit.MINUTES);
+
+        //返回token
+        return Result.ok(token);
+    }
+```
+
+```
+private User createUserWithPhone(String phone) {
+        User user = new User();
+        user.setPhone(phone);
+        user.setNickName(SystemConstants.USER_NICK_NAME_PREFIX + RandomUtil.randomString(6));
+        save(user);
+        return user;
+    }
+```
+
+
+
+登录过滤器
+
+```
+public class LoginInterceptor implements HandlerInterceptor {
+
+
+    private StringRedisTemplate stringRedisTemplate;//LoginInterceptor类没有交给Spring管理，所以不会被自动装配
+
+    public LoginInterceptor(StringRedisTemplate stringRedisTemplate) {
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        //获取请求头中的token
+        String token = request.getHeader("authorization");
+        if (StrUtil.isBlank(token)){//判断是否为空
+            //不存在拦截
+            response.setStatus(401);
+            return false;
+        }
+
+
+        //通过token获取redis中的用户
+        Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(RedisConstants.LOGIN_USER_KEY + token);
+        //判断用户是否存在
+        if (userMap.isEmpty()){
+            //不存在拦截
+            response.setStatus(401);
+            return false;
+        }
+
+
+        //将查询到的Hash对象转为UserDto对象
+        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);//false表示不忽略错误
+
+
+
+        //存在，保存用户信息到ThreadLocal
+       UserHolder.saveUser(userDTO);
+
+        //刷新token有效期
+        stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token,RedisConstants.LOGIN_USER_TTL, TimeUnit.MINUTES);
+
+        //放行
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+            //移除用户
+        UserHolder.removeUser();
+    }
+}
+```
+
+
+
+添加过滤器到Spring
+
+```
+@Configuration
+public class MvcConfig implements WebMvcConfigurer {
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LoginInterceptor(stringRedisTemplate))
+        .excludePathPatterns(
+                "/shop/**",
+                "/voucher/**",
+                "/shop-type/**",
+                "/upload/**",
+                "/blog/hot",
+                "/user/code",
+                "/user/login"
+        );
+    }
+}
+```
+
+#### 6 优化登录刷新问题
+
+新增一个刷新状态过滤器
+
+```
+public class RefreshTokenInterceptor implements HandlerInterceptor {
+
+
+    private StringRedisTemplate stringRedisTemplate;//LoginInterceptor类没有交给Spring管理，所以不会被自动装配
+
+    public RefreshTokenInterceptor(StringRedisTemplate stringRedisTemplate) {
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        //获取请求头中的token
+        String token = request.getHeader("authorization");
+        if (StrUtil.isBlank(token)){//判断是否为空
+           return true;
+        }
+
+
+        //通过token获取redis中的用户
+        Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(RedisConstants.LOGIN_USER_KEY + token);
+        //判断用户是否存在
+        if (userMap.isEmpty()){
+            return true;
+        }
+
+
+        //将查询到的Hash对象转为UserDto对象
+        UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);//false表示不忽略错误
+
+
+
+        //存在，保存用户信息到ThreadLocal
+       UserHolder.saveUser(userDTO);
+
+        //刷新token有效期
+        stringRedisTemplate.expire(RedisConstants.LOGIN_USER_KEY + token,RedisConstants.LOGIN_USER_TTL, TimeUnit.MINUTES);
+
+        //放行
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+            //移除用户
+        UserHolder.removeUser();
+    }
+}
+
+```
+
+**这个过滤器会拦截所有请求，因为前端每次访问服务器都会携带token，所以如果是已处于登录状态，每次发起请求都会刷新token**
+
+此时过滤登录器改为
+
+```
+public class LoginInterceptor implements HandlerInterceptor {
+
+
+//    private StringRedisTemplate stringRedisTemplate;//LoginInterceptor类没有交给Spring管理，所以不会被自动装配
+//
+//    public LoginInterceptor(StringRedisTemplate stringRedisTemplate) {
+//        this.stringRedisTemplate = stringRedisTemplate;
+//    }
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+       //判断是否需要拦截(ThreadLocal中是否有用户)
+        if (UserHolder.getUser() == null){
+            //没有，需要拦截
+            response.setStatus(401);
+            return false;
+        }
+        //有用户，放行
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+            //移除用户
+        UserHolder.removeUser();
+    }
+}
+```
+
+
+
+**添加过滤器到过滤链中并设置过滤顺序**
+
+```
+@Configuration
+public class MvcConfig implements WebMvcConfigurer {
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LoginInterceptor())
+        .excludePathPatterns(
+                "/shop/**",
+                "/voucher/**",
+                "/shop-type/**",
+                "/upload/**",
+                "/blog/hot",
+                "/user/code",
+                "/user/login"
+        ).order(1);//order是设置拦截器的执行顺序的，小的先执行
+
+        registry.addInterceptor(new RefreshTokenInterceptor(stringRedisTemplate)).addPathPatterns("/**").order(0);
+    }
+}
+```
+
