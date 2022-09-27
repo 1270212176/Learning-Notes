@@ -258,4 +258,157 @@ public class StringRedisTemplateTest {
 
 ##  实战篇
 
- 
+### 1 短信登录
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\短信登录\短信登录流程.png)
+
+
+
+#### 1 发送短信验证码
+
+service层代码
+
+```
+public Result sendCode(String phone, HttpSession session) {
+        //校验手机号
+        if (RegexUtils.isPhoneInvalid(phone)){
+            //如果不符合，返回错误信息
+            return Result.fail("手机格式错误");
+        }
+
+        //符合生成验证码
+        String code = RandomUtil.randomNumbers(6);//生成6为随机数，import cn.hutool.core.util.RandomUtil;下的工具类，需要导入依赖
+
+        //将验证码保存在session中
+        session.setAttribute("code",code);
+
+        //发送验证码
+        log.info("验证码发送成功，验证码{}",code);
+        //需要调用第三方短信平台，如阿里云，京东万象，详情见优选商城，这里使用日志打印code
+
+        //返回ok
+        return Result.ok();
+    }
+```
+
+
+
+#### 2 短信验证码登录与注册功能
+
+```
+ public Result login(LoginFormDTO loginForm, HttpSession session) {
+        //校验手机号
+
+        if (RegexUtils.isPhoneInvalid(loginForm.getPhone())){
+            //如果不符合，返回错误信息
+            return Result.fail("手机格式错误");
+        }
+
+
+        //校验验证码
+        Object objectCode = session.getAttribute("code");
+        String code = loginForm.getCode();
+        if (objectCode == null ||!objectCode.toString().equals(code)){
+            //不一致报错
+            return Result.fail("验证码错误");
+        }
+
+        //一致根据手机号查询用户
+        User user = query().eq("phone", loginForm.getPhone()).one();
+
+
+        //判断用户是否存在
+        if (user == null){
+            //不存在，创建新用户并写入数据库
+            user = createUserWithPhone(loginForm.getPhone());
+        }
+
+        //将用户保存到session中
+        session.setAttribute("user",user);
+        return Result.ok();
+    }
+
+
+```
+
+```
+    private User createUserWithPhone(String phone) {
+        User user = new User();
+        user.setPhone(phone);
+        user.setNickName(SystemConstants.USER_NICK_NAME_PREFIX + RandomUtil.randomString(6));
+        save(user);
+        return user;
+    }
+```
+
+#### 3 登录校验功能
+
+
+
+登录过滤器
+
+```
+public class LoginInterceptor implements HandlerInterceptor {
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        //获取session
+        HttpSession session = request.getSession();
+        //获取session中的用户
+        Object user = session.getAttribute("user");
+        //判断用户是否存在
+        if (user == null){
+            //不存在拦截
+            response.setStatus(401);
+            return false;
+        }
+
+        //存在，保存用户信息到ThreadLocal
+       UserHolder1.saveUser((User)user);
+
+        //放行
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+            //移除用户
+        UserHolder1.removeUser();
+    }
+}
+```
+
+
+
+添加过滤器
+
+```
+@Configuration
+public class MvcConfig implements WebMvcConfigurer {
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LoginInterceptor())
+        .excludePathPatterns(
+                "/shop/**",
+                "/voucher/**",
+                "/shop-type/**",
+                "/upload/**",
+                "/blog/hot",
+                "/user/code",
+                "/user/login"
+        );
+    }
+}
+```
+
+
+
+#### 4 集群的session共享问题
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\短信登录\集群session共享问题.png)
+
+#### 5 Redis代替session业务
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\短信登录\redis代替session1.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\短信登录\redis代替session2.png)
