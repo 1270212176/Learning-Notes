@@ -711,3 +711,198 @@ public class MvcConfig implements WebMvcConfigurer {
 }
 ```
 
+### 2 商户查询缓存
+
+#### 1 什么是缓存
+
+缓存就是数据交换的缓冲区，，是存贮数据的临时地方，一般读写性能高
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存的作用与成本.png)
+
+#### 2 添加商户缓存
+
+流程图
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\商户缓存流程图.png)
+
+
+
+代码
+
+
+
+```
+ public Result queryById(Long id) {
+        //从Redis查询商户缓存
+        String shopJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+        //判断是否存在
+        if(StrUtil.isNotBlank(shopJson)){
+            //存在，直接返回
+            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
+            return Result.ok(shop);
+        }
+
+
+
+        //不存在，根据id查询数据库
+        Shop shop = getById(id);
+
+        //判断是否存在
+        if(shop == null){
+            //不存在，直接返回错误
+            return Result.fail("店铺不存在");
+        }
+
+        //存在，将信息写入redis，返回
+        stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,JSONUtil.toJsonStr(shop));
+
+        return Result.ok(shop);
+    }
+```
+
+
+
+#### 3 缓存更新策略
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\更新缓存策略.png)
+
+
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\主动更新.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\先操作缓存还是先操作数据库.png)
+
+
+
+#### 4 给查询商铺的缓存添加超时剔除和主动更新的策略（缓存与数据库双写一致）
+
+步骤
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\查询商户缓存步骤.png)
+
+
+
+```
+public Result queryById(Long id) {
+        //从Redis查询商户缓存
+        String shopJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+        //判断是否存在
+        if(StrUtil.isNotBlank(shopJson)){
+            //存在，直接返回
+            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
+            return Result.ok(shop);
+        }
+
+
+
+        //不存在，根据id查询数据库
+        Shop shop = getById(id);
+
+        //判断是否存在
+        if(shop == null){
+            //不存在，直接返回错误
+            return Result.fail("店铺不存在");
+        }
+
+        //存在，将信息写入redis,设置过期时间，返回
+        stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,JSONUtil.toJsonStr(shop),RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
+        return Result.ok(shop);
+    }
+```
+
+
+
+```
+@Transactional
+    public Result updateShop(Shop shop) {
+        Long id = shop.getId();
+        if (id == null){
+            return Result.fail("商铺id不能为空");
+        }
+        //更新数据库
+        updateById(shop);
+
+        //删除缓存
+        stringRedisTemplate.delete(RedisConstants.CACHE_SHOP_KEY + id);
+
+        return Result.ok();
+    }
+```
+
+
+
+#### 5 缓存穿透解决方案
+
+##### 1 什么是缓存穿透
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存穿透.png)
+
+##### 2 两种解决方案
+
+######  	1 缓存空对象
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存空对象.png)
+
+
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存空对象流程图.png)
+
+###### 2 布隆过滤（基于二进制实现）
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\布隆过滤.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\布隆过滤器流程图.png)
+
+##### 3 缓存空对象实现步骤
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存空对象解决步骤.png)
+
+
+
+代码实现
+
+```
+ public Result queryById(Long id) {
+        //从Redis查询商户缓存
+        String shopJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+        //判断是否存在
+        if(StrUtil.isNotBlank(shopJson)){
+            //存在，直接返回
+            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
+            return Result.ok(shop);
+        }
+
+        //判断命中的是否是空值
+        if (shopJson != null){
+            //如果存在，在第一个if中就会返回，只剩下空字符串和！=null两种情况
+            //返回一个错误信息
+            return Result.fail("店铺不存在");
+        }
+
+
+        //不存在，根据id查询数据库
+        Shop shop = getById(id);
+
+        //判断是否存在
+        if(shop == null){
+            //不存在，直接返回错误,并将空值写入redis中
+            stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,""
+                    ,RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+
+            return Result.fail("店铺不存在");
+        }
+
+        //存在，将信息写入redis,设置过期时间，返回
+        stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,JSONUtil.toJsonStr(shop),
+                RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
+        return Result.ok(shop);
+    }
+```
+
+
+
+##### 4 归纳缓存穿透
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\穿透归纳.png)
