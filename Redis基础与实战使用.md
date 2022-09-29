@@ -906,3 +906,124 @@ public Result queryById(Long id) {
 ##### 4 归纳缓存穿透
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\穿透归纳.png)
+
+#### 3 缓存雪崩
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存雪崩.png)
+
+#### 4 缓存击穿
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存击穿.png)
+
+
+
+两种解决方案流程图
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存击穿解决方案.png)
+
+
+
+优缺点
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存击穿解决方案优缺点.png)
+
+
+
+##### 1 基于互斥锁解决
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\互斥锁流程.png)
+
+
+
+实现
+
+```
+    public Result queryById(Long id) throws InterruptedException {
+
+        //互斥锁解决缓存击穿
+        Shop shop = queryWithMutex(id);
+        if (shop==null){
+            return Result.fail("店铺不存在");
+        }
+        return Result.ok(shop);
+    }
+```
+
+
+
+```
+//互斥锁
+    public Shop queryWithMutex(Long id) throws InterruptedException {
+        //从Redis查询商户缓存
+        String shopJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+        //判断是否存在
+        if(StrUtil.isNotBlank(shopJson)){
+            //存在，直接返回
+            Shop shop = JSONUtil.toBean(shopJson, Shop.class);
+            return shop;
+        }
+
+        //判断命中的是否是空值
+        if (shopJson != null){
+            //如果存在，在第一个if中就会返回，只剩下空字符串和！=null两种情况
+            //返回一个错误信息
+            return null;
+        }
+
+
+        //实现缓存重建
+        //获取互斥锁
+        String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
+        boolean isLock = tryLock(lockKey);
+
+        //判断是否获取成功
+        if (!isLock){
+            //失败，休眠一段时间继续获取
+            Thread.sleep(50);
+            return queryWithMutex(id);
+        }
+
+
+        //成功根据id查询数据库
+        Shop shop = getById(id);
+
+        //模拟重建延时
+        Thread.sleep(200);
+
+        //判断是否存在
+        if(shop == null){
+            //不存在，直接返回错误,并将空值写入redis中
+            stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,""
+                    ,RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
+
+            return null;
+        }
+
+        //存在，将信息写入redis,设置过期时间，返回
+        stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,JSONUtil.toJsonStr(shop),
+                RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
+        //释放互斥锁
+        unlock(lockKey);
+
+        return shop;
+    }
+```
+
+
+
+```
+public boolean tryLock(String key){
+        Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", 10, TimeUnit.SECONDS);//类似于setnx方法
+        return BooleanUtil.isTrue(flag);
+    }
+```
+
+
+
+```
+public void unlock(String key){
+        stringRedisTemplate.delete(key);
+    }
+```
+
