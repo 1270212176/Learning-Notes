@@ -1,3 +1,5 @@
+
+
 #  Redis
 
 ## 基础篇
@@ -869,6 +871,7 @@ public Result queryById(Long id) {
         //判断是否存在
         if(StrUtil.isNotBlank(shopJson)){
             //存在，直接返回
+            //判断是否为空白，空白的定义是null,"",不可见字符（如空格）
             Shop shop = JSONUtil.toBean(shopJson, Shop.class);
             return Result.ok(shop);
         }
@@ -876,6 +879,7 @@ public Result queryById(Long id) {
         //判断命中的是否是空值
         if (shopJson != null){
             //如果存在，在第一个if中就会返回，只剩下空字符串和！=null两种情况
+            //返回的是""，就是命中了空对象，因为在下面存储的空对象就是""
             //返回一个错误信息
             return Result.fail("店铺不存在");
         }
@@ -1027,3 +1031,113 @@ public void unlock(String key){
     }
 ```
 
+##### 2 逻辑过期解决缓存击穿
+
+前提：以前将热门key写入redis缓存中
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\逻辑过期时间.png)
+
+
+
+代码实现
+
+逻辑过期时间类
+
+```
+@Data
+public class RedisData {
+    private LocalDateTime expireTime;
+    private Object data;
+}
+
+```
+
+```
+//数据预热----提前将热点数据写入Redis缓存中
+    public void saveShop2Redis(Long id,Long expireSeconds){
+        //1 查询店铺数据
+        Shop shop = getById(id);
+        try {
+            Thread.sleep(200);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        //封装过期时间
+        RedisData redisData = new RedisData();
+        redisData.setExpireTime(LocalDateTime.now().plusSeconds(expireSeconds));//在当前时间加上多少秒
+        redisData.setData(shop);
+        //写入Redis
+        stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,JSONUtil.toJsonStr(redisData));
+    }
+```
+
+
+
+
+
+```
+//逻辑过期解决缓存穿透
+    //不用考虑缓存穿透，因为用户会提前对数据进行预热，所以都能在redis缓存中访问到，没访问到就代表不是热点key
+    public Shop queryWithLogicalExpire(Long id){
+        //从Redis查询商户缓存
+        String shopJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
+        //判断是否存在
+        if(StrUtil.isBlank(shopJson)){
+            //不存在，返回null
+            return null;
+        }
+
+
+        //命中，需要先把Json反序列为对象
+        RedisData redisData = JSONUtil.toBean(shopJson, RedisData.class);
+        JSONObject data = (JSONObject)redisData.getData();
+        Shop shop = JSONUtil.toBean(data, Shop.class);
+        LocalDateTime expireTime = redisData.getExpireTime();
+
+        //判断是否过期
+        if (expireTime.isAfter(LocalDateTime.now())){
+            //未过期，直接返回店铺信息
+            return shop;
+        }
+
+
+
+        //已过期，需要缓存重建
+        //缓存重建
+        //获取互斥锁
+        String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
+        boolean isLock = tryLock(lockKey);
+        //判断是否获取成功
+        if (isLock){
+            //成功，开启独立线程，实现缓存重建
+            CACHE_REBUILD_EXECUTOR.submit(()->{
+
+                try {
+
+                    //重建缓存
+                    this.saveShop2Redis(id,20L);
+                }catch (Exception e){
+                    throw new RuntimeException(e);
+                }finally {
+                    //释放锁
+                    unlock(lockKey);
+                }
+
+
+
+            });
+        }
+
+
+        //返回过期的商铺信息
+        return shop;
+    }
+```
+
+
+
+开启多个线程进行数据重建
+
+```
+private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
+```
