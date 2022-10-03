@@ -1922,3 +1922,116 @@ public class SimpleRedisLock implements ILock{
 ##### 7 redis分布式锁实现思路与特性
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\redis分布锁.png)
+
+##### 8 Redisson实现分布式锁
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\锁的优化问题.png)
+
+
+
+Redisson用来实现分布式锁的一种框架
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\Redisson.png)
+
+
+
+1 添加依赖和配置
+
+```
+<dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.13.6</version>
+        </dependency>
+```
+
+```
+@Configuration
+public class RedissonConfig {
+
+    @Bean
+    public RedissonClient redissonClient(){
+        // 配置
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
+        // 创建RedissonClient对象
+        return Redisson.create(config);
+    }
+}
+```
+
+使用Redisson的分布式锁
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\使用Redisson的分布式锁.png)
+
+```
+ public Result seckillVoucher(Long voucherId) {
+
+        //查询优惠券
+        SeckillVoucher voucher = iSeckillVoucherService.getById(voucherId);
+
+        //判断秒杀是否开始
+        if (voucher.getBeginTime().isAfter(LocalDateTime.now())){
+            //尚未开始
+            return Result.fail("秒杀尚未开始");
+        }
+
+        //判断秒杀是否结束
+        if (voucher.getBeginTime().isBefore(LocalDateTime.now())){
+            //已经结束
+            return Result.fail("秒杀已经结束");
+        }
+
+        //判断库存是否充足
+        if (voucher.getStock()<1){
+            return Result.fail("库存不足");
+        }
+        Long userId = UserHolder.getUser().getId();
+
+        //创建锁对象
+        //使用Redisson的分布式锁
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+
+        //获取锁
+        boolean isLock = lock.tryLock();
+        //判断锁是否获取成功
+        if (!isLock){
+            //不成功，返回错误信息
+            return Result.fail("不允许重复下单");
+
+        }
+
+        try{
+            //intern方法是保证每个userId字符串是同一个，保证同一个用户是同一把锁
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            //获得代理对象来开启事务，因为Spring是通过动态代理来进行事务管理的，如果用this调用，用的是当前对象而不是代理对象
+            return proxy.createVoucher(voucherId);
+        }finally {
+            lock.unlock();
+        }
+
+
+
+
+    }
+```
+
+
+
+##### 9 Redisson可重入锁原理
+
+记录重入次数
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\Redisson可重入锁.png)
+
+
+
+获取锁的Lua脚本
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\获取锁的Lua脚本.png)
+
+
+
+释放锁的Lua脚本
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\释放重入锁的Lua脚本.png)
