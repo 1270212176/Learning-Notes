@@ -1375,3 +1375,550 @@ public class RedisIdWork {
 
 
 #### 2 实现优惠券秒杀下单
+
+流程
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\秒杀下单实现流程.png)
+
+
+
+代码实现
+
+```
+  @Transactional
+    public Result seckillVoucher(Long voucherId) {
+
+        //查询优惠券
+        SeckillVoucher voucher = iSeckillVoucherService.getById(voucherId);
+
+        //判断秒杀是否开始
+        if (voucher.getBeginTime().isAfter(LocalDateTime.now())){
+            //尚未开始
+            return Result.fail("秒杀尚未开始");
+        }
+
+        //判断秒杀是否结束
+        if (voucher.getBeginTime().isBefore(LocalDateTime.now())){
+            //已经结束
+            return Result.fail("秒杀已经结束");
+        }
+
+        //判断库存是否充足
+        if (voucher.getStock()<1){
+            return Result.fail("库存不足");
+        }
+
+        //减库存
+        boolean success = iSeckillVoucherService.update()
+                .setSql("stock=stock-1")
+                .eq("voucher_id",voucherId)
+                .update();
+
+        if (!success){
+            return Result.fail("库存不足");
+        }
+
+        //创建订单
+        VoucherOrder voucherOrder = new VoucherOrder();
+        //订单id
+        long orderId = redisIdWork.nexId("order");
+        voucherOrder.setId(orderId);
+        //用户id
+        Long userId = UserHolder.getUser().getId();
+        voucherOrder.setUserId(userId);
+        //代金券id
+        voucherOrder.setVoucherId(voucherId);
+        save(voucherOrder);
+
+        //返回订单id
+        return Result.ok(orderId);
+    }
+```
+
+
+
+#### 3 超卖问题
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\超卖问题.png)
+
+
+
+##### 1 乐观锁
+
+什么是乐观锁？
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\乐观锁.png)
+
+
+
+**版本号法**
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\版本号法.png)
+
+**CAS法（用修改的数据代替版本号）**
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\CAS法.png)
+
+##### 2 CAS乐观锁法解决超卖问题
+
+代码实现
+
+```
+ @Transactional
+    public Result seckillVoucher(Long voucherId) {
+
+        //查询优惠券
+        SeckillVoucher voucher = iSeckillVoucherService.getById(voucherId);
+
+        //判断秒杀是否开始
+        if (voucher.getBeginTime().isAfter(LocalDateTime.now())){
+            //尚未开始
+            return Result.fail("秒杀尚未开始");
+        }
+
+        //判断秒杀是否结束
+        if (voucher.getBeginTime().isBefore(LocalDateTime.now())){
+            //已经结束
+            return Result.fail("秒杀已经结束");
+        }
+
+        //判断库存是否充足
+        if (voucher.getStock()<1){
+            return Result.fail("库存不足");
+        }
+
+        //减库存
+        boolean success = iSeckillVoucherService.update()
+                .setSql("stock=stock-1")
+                .eq("voucher_id",voucherId).gt("stock",0)//修改前先判断库存是否还大于0
+                .update();
+
+        if (!success){
+            return Result.fail("库存不足");
+        }
+
+        //创建订单
+        VoucherOrder voucherOrder = new VoucherOrder();
+        //订单id
+        long orderId = redisIdWork.nexId("order");
+        voucherOrder.setId(orderId);
+        //用户id
+        Long userId = UserHolder.getUser().getId();
+        voucherOrder.setUserId(userId);
+        //代金券id
+        voucherOrder.setVoucherId(voucherId);
+        save(voucherOrder);
+
+        //返回订单id
+        return Result.ok(orderId);
+    }
+```
+
+
+
+##### 3 解决方案优缺点
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\超卖解决方案优缺点.png)
+
+
+
+#### 4 一人一单
+
+获得动态代理对象需要添加依赖和在启动类加@EnableAspectJAutoProxy(exposeProxy = true)注解
+
+```
+<dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+        </dependency>
+        
+        @EnableAspectJAutoProxy(exposeProxy = true)
+```
+
+
+
+```
+public Result seckillVoucher(Long voucherId) {
+
+        //查询优惠券
+        SeckillVoucher voucher = iSeckillVoucherService.getById(voucherId);
+
+        //判断秒杀是否开始
+        if (voucher.getBeginTime().isAfter(LocalDateTime.now())){
+            //尚未开始
+            return Result.fail("秒杀尚未开始");
+        }
+
+        //判断秒杀是否结束
+        if (voucher.getBeginTime().isBefore(LocalDateTime.now())){
+            //已经结束
+            return Result.fail("秒杀已经结束");
+        }
+
+        //判断库存是否充足
+        if (voucher.getStock()<1){
+            return Result.fail("库存不足");
+        }
+        Long userId = UserHolder.getUser().getId();
+        synchronized (userId.toString().intern()) {
+            //intern方法是保证每个userId字符串是同一个，保证同一个用户是同一把锁
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            //获得代理对象来开启事务，因为Spring是通过动态代理来进行事务管理的，如果用this调用，用的是当前对象而不是代理对象
+            return proxy.createVoucher(voucherId);
+        }
+
+    }
+```
+
+
+
+```
+@Transactional
+    public  Result createVoucher(Long voucherId){
+        Long userId = UserHolder.getUser().getId();
+        //一人一单
+        //查询订单
+
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+
+        //判断是否存在
+        if (count>0){
+            //用户已经购买过
+            return Result.fail("用户已购买过该优惠券");
+        }
+
+
+        //减库存
+        boolean success = iSeckillVoucherService.update()
+                .setSql("stock=stock-1")
+                .eq("voucher_id",voucherId).gt("stock",0)//修改前先判断库存是否还大于0
+                .update();
+
+        if (!success){
+            return Result.fail("库存不足");
+        }
+
+        //创建订单
+        VoucherOrder voucherOrder = new VoucherOrder();
+        //订单id
+        long orderId = redisIdWork.nexId("order");
+        voucherOrder.setId(orderId);
+        //用户id
+
+        voucherOrder.setUserId(userId);
+        //代金券id
+        voucherOrder.setVoucherId(voucherId);
+        save(voucherOrder);
+        //返回订单id
+            return Result.ok(orderId);
+        }
+```
+
+
+
+#### 5 集群下的线程并发安全问题
+
+每一个端口都对应的一个jvm虚拟机，每个jvm中的锁只对自己监控下的线程起作用，所以集群下的synchronized就不起作用
+
+
+
+#### 6 分布式锁
+
+##### 1 什么是分布式锁？
+
+满足分布式系统或集群模式下多进程可见并且互斥的锁
+
+
+
+##### 2 分布式锁流程
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\分布式锁过程.png)
+
+
+
+##### 3 分布式锁实现方式
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\互斥锁实现方式.png)
+
+##### 4 Redis实现分布式锁
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\基于Redis实现分布式锁.png)
+
+代码实现
+
+```
+public interface ILock {
+    public boolean tryLock(long timeoutSec);
+    public void unlock();
+}
+
+```
+
+
+
+```
+public class SimpleRedisLock implements ILock{
+
+
+    private StringRedisTemplate stringRedisTemplate;
+    private String name;
+    private static final String KEY_PREFIX = "lock:";
+
+    public SimpleRedisLock(StringRedisTemplate stringRedisTemplate, String name) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.name = name;
+    }
+
+    @Override
+    public boolean tryLock(long timeoutSec) {
+        //获取线程标识
+        long threadId = Thread.currentThread().getId();
+
+        //获取锁
+        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(KEY_PREFIX + name, threadId + "", timeoutSec, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(success);
+    }
+
+    @Override
+    public void unlock() {
+        //释放锁
+        stringRedisTemplate.delete(KEY_PREFIX + name);
+    }
+}
+```
+
+
+
+```
+public Result seckillVoucher(Long voucherId) {
+
+        //查询优惠券
+        SeckillVoucher voucher = iSeckillVoucherService.getById(voucherId);
+
+        //判断秒杀是否开始
+        if (voucher.getBeginTime().isAfter(LocalDateTime.now())){
+            //尚未开始
+            return Result.fail("秒杀尚未开始");
+        }
+
+        //判断秒杀是否结束
+        if (voucher.getBeginTime().isBefore(LocalDateTime.now())){
+            //已经结束
+            return Result.fail("秒杀已经结束");
+        }
+
+        //判断库存是否充足
+        if (voucher.getStock()<1){
+            return Result.fail("库存不足");
+        }
+        Long userId = UserHolder.getUser().getId();
+
+        //创建锁对象
+        SimpleRedisLock simpleRedisLock = new SimpleRedisLock( stringRedisTemplate,"order:" + userId);
+
+        //获取锁
+        boolean isLock = simpleRedisLock.tryLock(1200);
+        //判断锁是否获取成功
+        if (!isLock){
+            //不成功，返回错误信息
+            return Result.fail("不允许重复下单");
+
+        }
+
+        try{
+            //intern方法是保证每个userId字符串是同一个，保证同一个用户是同一把锁
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            //获得代理对象来开启事务，因为Spring是通过动态代理来进行事务管理的，如果用this调用，用的是当前对象而不是代理对象
+            return proxy.createVoucher(voucherId);
+        }finally {
+            simpleRedisLock.unlock();
+        }
+
+
+
+
+    }
+
+    @Transactional
+    public  Result createVoucher(Long voucherId){
+        Long userId = UserHolder.getUser().getId();
+        //一人一单
+        //查询订单
+
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+
+        //判断是否存在
+        if (count>0){
+            //用户已经购买过
+            return Result.fail("用户已购买过该优惠券");
+        }
+
+
+        //减库存
+        boolean success = iSeckillVoucherService.update()
+                .setSql("stock=stock-1")
+                .eq("voucher_id",voucherId).gt("stock",0)//修改前先判断库存是否还大于0
+                .update();
+
+        if (!success){
+            return Result.fail("库存不足");
+        }
+
+        //创建订单
+        VoucherOrder voucherOrder = new VoucherOrder();
+        //订单id
+        long orderId = redisIdWork.nexId("order");
+        voucherOrder.setId(orderId);
+        //用户id
+
+        voucherOrder.setUserId(userId);
+        //代金券id
+        voucherOrder.setVoucherId(voucherId);
+        save(voucherOrder);
+        //返回订单id
+            return Result.ok(orderId);
+        }
+
+```
+
+
+
+##### 5 Redis分布式锁误删问题
+
+解决方案每次释放锁的时候判断当前锁的标识是否一致
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\锁误删解决方案.png)
+
+代码实现
+
+```
+public class SimpleRedisLock implements ILock{
+
+
+    private StringRedisTemplate stringRedisTemplate;
+    private String name;
+    private static final String KEY_PREFIX = "lock:";
+    private static final String ID_PREFIX = UUID.randomUUID().toString(true) + "-";
+
+    public SimpleRedisLock(StringRedisTemplate stringRedisTemplate, String name) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.name = name;
+    }
+
+    @Override
+    public boolean tryLock(long timeoutSec) {
+        //获取线程标识
+        String threadId = ID_PREFIX + Thread.currentThread().getId();
+
+        //获取锁
+        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(KEY_PREFIX + name, threadId, timeoutSec, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(success);
+    }
+
+    @Override
+    public void unlock() {
+        //获取线程标识
+        String threadId = ID_PREFIX + Thread.currentThread().getId();
+
+        //获取锁中的标识
+        String id = stringRedisTemplate.opsForValue().get(KEY_PREFIX + name);
+
+        //判断标识是否一致
+        if (threadId.equals(id)){
+            //一致
+            //释放锁
+            stringRedisTemplate.delete(KEY_PREFIX + name);
+        }
+
+    }
+}
+```
+
+
+
+##### 6 Redis的Lua脚本确保多条命令执行的原子性
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\redis的Lua.png)
+
+
+
+执行Lua脚本
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\执行Lua脚本.png)
+
+
+
+释放锁的Lua脚本
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\释放锁的Lua脚本.png)
+
+
+
+在Resource创建Lua文件--unlock.lua
+
+```
+--比较线程标识与锁的标识是否一致
+if(redis.call('get',KEYS[1])==ARGV[1]) then
+return redis.call('del',KEYS[1])
+end
+return 0
+```
+
+
+
+修改unlock函数
+
+```
+public class SimpleRedisLock implements ILock{
+
+
+    private StringRedisTemplate stringRedisTemplate;
+    private String name;
+    private static final String KEY_PREFIX = "lock:";
+    private static final String ID_PREFIX = UUID.randomUUID().toString(true) + "-";
+
+    //初始化Lua脚本
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT;
+
+    static {
+        UNLOCK_SCRIPT = new DefaultRedisScript<>();
+        UNLOCK_SCRIPT.setLocation(new ClassPathResource("unlock.lua"));
+        UNLOCK_SCRIPT.setResultType(Long.class);
+    }
+
+
+    public SimpleRedisLock(StringRedisTemplate stringRedisTemplate, String name) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.name = name;
+    }
+
+    @Override
+    public boolean tryLock(long timeoutSec) {
+        //获取线程标识
+        String threadId = ID_PREFIX + Thread.currentThread().getId();
+
+        //获取锁
+        Boolean success = stringRedisTemplate.opsForValue().setIfAbsent(KEY_PREFIX + name, threadId, timeoutSec, TimeUnit.SECONDS);
+        return Boolean.TRUE.equals(success);
+    }
+
+//基于Lua脚本的释放锁.能够满足原子性
+    @Override
+    public void unlock() {
+        //调用Lua脚本
+        stringRedisTemplate.execute(
+                UNLOCK_SCRIPT,
+                Collections.singletonList(KEY_PREFIX + name),
+                ID_PREFIX + Thread.currentThread().getId()
+                );
+
+    }
+
+}
+```
+
+
+
+##### 7 redis分布式锁实现思路与特性
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\redis分布锁.png)
