@@ -1348,7 +1348,7 @@ public class RedisIdWork {
         //获取当前日期，精确到天
         String date = localDateTime.format(DateTimeFormatter.ofPattern("yyyy:MM:dd"));
         //自增长
-        long count = stringRedisTemplate.opsForValue().increment("icr" + prefixKey + date);
+        long count = stringRedisTemplate.opsForValue().increment("icr" + prefixKey + date);//incrby 方法如果key为空会自动创建key
 
 
         //拼接并返回
@@ -2018,20 +2018,83 @@ public class RedissonConfig {
 
 
 
-##### 9 Redisson可重入锁原理
+##### 9 Redisson可重入锁、锁重试、watchDog实现方式
 
-记录重入次数
+重入锁：记录重入次数
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\Redisson可重入锁.png)
 
 
 
-获取锁的Lua脚本
-
-![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\获取锁的Lua脚本.png)
 
 
 
-释放锁的Lua脚本
 
-![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\释放重入锁的Lua脚本.png)
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\Redisson可重入、重试、watchDog实现方式.png)
+
+##### 10 redis分布式锁总结
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\优惠券\分布式锁总结.png)
+
+### 4 异步秒杀
+
+思路：将减库存与一人一单操作提取出来
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\异步秒杀\异步秒杀思路.png)
+
+
+
+代码实现
+
+```
+ @Transactional
+    //在新增优惠券的同时将库存写入Redis
+    public void addSeckillVoucher(Voucher voucher) {
+        // 保存优惠券
+        save(voucher);
+        // 保存秒杀信息
+        SeckillVoucher seckillVoucher = new SeckillVoucher();
+        seckillVoucher.setVoucherId(voucher.getId());
+        seckillVoucher.setStock(voucher.getStock());
+        seckillVoucher.setBeginTime(voucher.getBeginTime());
+        seckillVoucher.setEndTime(voucher.getEndTime());
+        seckillVoucherService.save(seckillVoucher);
+
+        //保存优惠券库存到Redis中
+        stringRedisTemplate.opsForValue().set(RedisConstants.SECKILL_STOCK_KEY +voucher.getId(),voucher.getStock().toString());
+    }
+```
+
+
+
+Lua脚本实现
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\异步秒杀\异步秒杀Lua脚本1.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\异步秒杀\异步秒杀Lua脚本2.png)
+
+
+
+**了解思路即可**
+
+
+
+### 5 Redis的消息队列
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\队列\redis的队列.png)
+
+
+
+#### 1 List类型消息队列
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\队列\List类型消息队列.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\队列\List消息队列优缺点.png)
+
+#### 2 PubSub队列
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\队列\PubSub队列.png)
+
+![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\队列\PubSub优缺点.png)
+
+3 Stream队列
