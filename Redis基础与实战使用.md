@@ -480,7 +480,7 @@ public Result sendCode(String phone, HttpSession session) {
         //随机生成token作为登录令牌
         String token = UUID.randomUUID().toString(true);
 
-        //将User对象转为Hash存储
+        //将User对象转为Hash存储------也可以将一整个用户对象存入redis只不过修改性比较差
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         Map<String, Object> map = BeanUtil.beanToMap(userDTO,new HashMap<>(),
         CopyOptions.create()
