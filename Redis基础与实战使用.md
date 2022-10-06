@@ -911,11 +911,11 @@ public Result queryById(Long id) {
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\穿透归纳.png)
 
-#### 3 缓存雪崩
+#### 6 缓存雪崩
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存雪崩.png)
 
-#### 4 缓存击穿
+#### 7 缓存击穿
 
 ![](C:\Users\1270212176\Desktop\大三下实训\RabbitMq学习截图\redis\商户查询缓存\缓存击穿.png)
 
@@ -1144,7 +1144,7 @@ private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixed
 
 
 
-#### 5 封装Redis工具类
+#### 8 封装Redis工具类
 
 
 
